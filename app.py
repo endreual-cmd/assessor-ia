@@ -73,52 +73,62 @@ with aba_rf:
     pct_cdi = c3.number_input("CDB — % do CDI", value=100.0, step=5.0)
     juro_real = c3.number_input("Tesouro IPCA+ — juro real (% a.a.)", value=6.0, step=0.25) / 100
 
-    resultados = [
-        rf.projetar("CDB pós (% CDI)", principal, rf.taxa_cdb(pct_cdi, cdi), meses),
-        rf.projetar("Tesouro IPCA+", principal, rf.taxa_ipca_mais(ipca, juro_real), meses),
-        rf.projetar("LCI/LCA (90% CDI, isento)", principal, rf.taxa_cdb(90, cdi), meses, isento_ir=True),
-        rf.projetar("Poupança", principal, rf.taxa_poupanca_aa(selic), meses, isento_ir=True),
-    ]
-    resultados.sort(key=lambda r: r.valor_liquido, reverse=True)
+    # Só calcula ao clicar — evita recalcular (e chamar o LLM) a cada tecla.
+    if st.button("Recalcular", key="recalcular_rf"):
+        resultados = [
+            rf.projetar("CDB pós (% CDI)", principal, rf.taxa_cdb(pct_cdi, cdi), meses),
+            rf.projetar("Tesouro IPCA+", principal, rf.taxa_ipca_mais(ipca, juro_real), meses),
+            rf.projetar("LCI/LCA (90% CDI, isento)", principal, rf.taxa_cdb(90, cdi), meses, isento_ir=True),
+            rf.projetar("Poupança", principal, rf.taxa_poupanca_aa(selic), meses, isento_ir=True),
+        ]
+        resultados.sort(key=lambda r: r.valor_liquido, reverse=True)
 
-    tabela = pd.DataFrame([{
-        "Produto": r.nome,
-        "Taxa a.a.": f"{r.taxa_aa*100:.2f}%",
-        "Bruto": f"R$ {r.valor_bruto:,.2f}",
-        "IR": f"R$ {r.ir:,.2f}",
-        "Líquido": f"R$ {r.valor_liquido:,.2f}",
-        "Rent. líq.": f"{r.rentabilidade_liquida_pct:.2f}%",
-        "Líq. a.a. equiv.": f"{r.liquido_aa_equivalente*100:.2f}%",
-    } for r in resultados])
-    st.dataframe(tabela, use_container_width=True, hide_index=True)
-
-    fig = go.Figure()
-    for r in resultados:
-        fig.add_trace(go.Scatter(
-            x=[m for m, _ in r.serie],
-            y=[v for _, v in r.serie],
-            mode="lines", name=r.nome,
-        ))
-    fig.update_layout(
-        title="Evolução do valor bruto acumulado",
-        xaxis_title="Meses", yaxis_title="R$", height=420,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    melhor = resultados[0]
-    dif = melhor.valor_liquido - resultados[-1].valor_liquido
-    contexto = (
-        f"Cenário: CDI {cdi*100:.2f}% a.a., IPCA {ipca*100:.2f}% a.a., "
-        f"Selic {selic*100:.2f}% a.a. Aporte R$ {principal:,.2f} por {meses} meses.\n"
-        + "\n".join(
-            f"- {r.nome}: líquido R$ {r.valor_liquido:,.2f} "
-            f"({r.rentabilidade_liquida_pct:.2f}%)"
-            for r in resultados
+        melhor = resultados[0]
+        dif = melhor.valor_liquido - resultados[-1].valor_liquido
+        contexto = (
+            f"Cenário: CDI {cdi*100:.2f}% a.a., IPCA {ipca*100:.2f}% a.a., "
+            f"Selic {selic*100:.2f}% a.a. Aporte R$ {principal:,.2f} por {meses} meses.\n"
+            + "\n".join(
+                f"- {r.nome}: líquido R$ {r.valor_liquido:,.2f} "
+                f"({r.rentabilidade_liquida_pct:.2f}%)"
+                for r in resultados
+            )
+            + f"\nMaior líquido: {melhor.nome}. Diferença para o pior: R$ {dif:,.2f}."
         )
-        + f"\nMaior líquido: {melhor.nome}. Diferença para o pior: R$ {dif:,.2f}."
-    )
-    st.markdown("#### Parecer")
-    st.markdown(agente.sintetizar(contexto))
+        st.session_state["rf_resultados"] = resultados
+        st.session_state["rf_parecer"] = agente.sintetizar(contexto)
+
+    if "rf_resultados" in st.session_state:
+        resultados = st.session_state["rf_resultados"]
+
+        tabela = pd.DataFrame([{
+            "Produto": r.nome,
+            "Taxa a.a.": f"{r.taxa_aa*100:.2f}%",
+            "Bruto": f"R$ {r.valor_bruto:,.2f}",
+            "IR": f"R$ {r.ir:,.2f}",
+            "Líquido": f"R$ {r.valor_liquido:,.2f}",
+            "Rent. líq.": f"{r.rentabilidade_liquida_pct:.2f}%",
+            "Líq. a.a. equiv.": f"{r.liquido_aa_equivalente*100:.2f}%",
+        } for r in resultados])
+        st.dataframe(tabela, use_container_width=True, hide_index=True)
+
+        fig = go.Figure()
+        for r in resultados:
+            fig.add_trace(go.Scatter(
+                x=[m for m, _ in r.serie],
+                y=[v for _, v in r.serie],
+                mode="lines", name=r.nome,
+            ))
+        fig.update_layout(
+            title="Evolução do valor bruto acumulado",
+            xaxis_title="Meses", yaxis_title="R$", height=420,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("#### Parecer")
+        st.markdown(st.session_state["rf_parecer"])
+    else:
+        st.info("Preencha os campos acima e clique em **Recalcular** para ver a projeção.")
 
 # --------------------------------------------------------------------------- #
 # ABA 2 — Análise de carteira
@@ -133,15 +143,35 @@ with aba_cart:
     })
     editada = st.data_editor(base, use_container_width=True, hide_index=True, num_rows="dynamic")
 
-    ativos = [
-        ct.Ativo(row["Ativo"], row["Peso %"] / 100,
-                 row["Retorno esp. % a.a."] / 100, row["Volatilidade % a.a."] / 100)
-        for _, row in editada.iterrows()
-        if str(row["Ativo"]).strip()
-    ]
+    # Só calcula ao clicar — evita recalcular (e chamar o LLM) a cada edição da tabela.
+    if st.button("Recalcular", key="recalcular_cart"):
+        ativos = [
+            ct.Ativo(row["Ativo"], row["Peso %"] / 100,
+                     row["Retorno esp. % a.a."] / 100, row["Volatilidade % a.a."] / 100)
+            for _, row in editada.iterrows()
+            if str(row["Ativo"]).strip()
+        ]
+        if ativos:
+            res = ct.analisar(ativos, taxa_livre_risco_aa=cdi)
+            contexto = (
+                f"Carteira com {len(ativos)} classes. "
+                f"Retorno esperado {res['retorno_esperado_aa']*100:.2f}% a.a., "
+                f"volatilidade {res['volatilidade_aa']*100:.2f}% a.a., "
+                f"Sharpe {res['sharpe']:.2f} (livre de risco = CDI {cdi*100:.2f}%).\n"
+                + "\n".join(f"- {a.nome}: {res['pesos'][a.nome]*100:.1f}% da carteira"
+                            for a in ativos)
+            )
+            st.session_state["cart_ativos"] = ativos
+            st.session_state["cart_res"] = res
+            st.session_state["cart_parecer"] = agente.sintetizar(contexto)
+        else:
+            st.session_state.pop("cart_ativos", None)
+            st.warning("Preencha ao menos um ativo com nome antes de recalcular.")
 
-    if ativos:
-        res = ct.analisar(ativos, taxa_livre_risco_aa=cdi)
+    if "cart_ativos" in st.session_state:
+        ativos = st.session_state["cart_ativos"]
+        res = st.session_state["cart_res"]
+
         m1, m2, m3 = st.columns(3)
         m1.metric("Retorno esperado", f"{res['retorno_esperado_aa']*100:.2f}% a.a.")
         m2.metric("Volatilidade", f"{res['volatilidade_aa']*100:.2f}% a.a.")
@@ -165,16 +195,10 @@ with aba_cart:
         scatter.update_traces(textposition="top center", marker=dict(size=12))
         g2.plotly_chart(scatter, use_container_width=True)
 
-        contexto = (
-            f"Carteira com {len(ativos)} classes. "
-            f"Retorno esperado {res['retorno_esperado_aa']*100:.2f}% a.a., "
-            f"volatilidade {res['volatilidade_aa']*100:.2f}% a.a., "
-            f"Sharpe {res['sharpe']:.2f} (livre de risco = CDI {cdi*100:.2f}%).\n"
-            + "\n".join(f"- {a.nome}: {res['pesos'][a.nome]*100:.1f}% da carteira"
-                        for a in ativos)
-        )
         st.markdown("#### Parecer")
-        st.markdown(agente.sintetizar(contexto))
+        st.markdown(st.session_state["cart_parecer"])
+    else:
+        st.info("Edite a carteira acima e clique em **Recalcular** para ver a análise.")
 
 # --------------------------------------------------------------------------- #
 # ABA 3 — Consulta de ativo (brapi)
