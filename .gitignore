@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Segredos / chaves (GEMINI_API_KEY, BRAPI_TOKEN)
+.env
+.streamlit/secrets.toml
+
+# Backup/artefato duplicado do código-fonte
+files.zip
+
+# SO / editor
+.DS_Store
+.idea/
+.vscode/
