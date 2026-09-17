@@ -43,7 +43,9 @@ def _rotear_heuristica(pergunta: str) -> str:
 def _gemini():
     import google.generativeai as genai
     genai.configure(api_key=GEMINI_KEY)
-    return genai.GenerativeModel("gemini-1.5-flash")
+    # Alias mantido pelo Google apontando sempre para o Flash atual (free tier).
+    # Evita quebra a cada descontinuação de versão (1.5/2.0/2.5 já saíram de linha).
+    return genai.GenerativeModel("gemini-flash-latest")
 
 
 def _rotear_llm(pergunta: str) -> str:
