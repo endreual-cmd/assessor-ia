@@ -32,8 +32,11 @@ def _cenario_bcb():
     return macro.cenario_atual()
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _focus_bcb():
+    # ttl menor que as demais: Focus é semanal, mas prioriza refletir o
+    # fix de encoding da query OData rápido em vez de ficar preso a um
+    # cache antigo de até 1h de uma versão anterior.
     return macro.expectativas_focus()
 
 
