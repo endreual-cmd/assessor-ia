@@ -14,6 +14,7 @@ Degradação graciosa: qualquer falha (rede, mudança de formato na fonte)
 devolve None: o app.py cai nos defaults manuais anteriores. Nada quebra.
 """
 from datetime import datetime
+from urllib.parse import quote
 
 import requests
 
@@ -59,13 +60,11 @@ def expectativas_focus() -> dict | None:
     resultado = {}
     try:
         for indicador, chave in (("Selic", "selic"), ("IPCA", "ipca")):
-            params = {
-                "$filter": f"Indicador eq '{indicador}'",
-                "$orderby": "Data desc",
-                "$top": "20",
-                "$format": "json",
-            }
-            r = requests.get(FOCUS_URL, params=params, timeout=12)
+            # Monta a query manualmente: requests.get(params=...) usa "+" para
+            # espaço, mas a API OData do BCB só aceita "%20" (senão dá 400).
+            filtro = quote(f"Indicador eq '{indicador}'")
+            qs = f"$filter={filtro}&$orderby=Data%20desc&$top=20&$format=json"
+            r = requests.get(f"{FOCUS_URL}?{qs}", timeout=12)
             r.raise_for_status()
             por_ano = {}
             for linha in r.json().get("value", []):
