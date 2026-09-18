@@ -84,11 +84,19 @@ assessor-ia/
 ├── tools/
 │   ├── renda_fixa.py   # projeção determinística (juros compostos + IR)
 │   ├── carteira.py     # retorno, volatilidade, Sharpe, rebalanceamento
-│   └── mercado.py      # cliente brapi.dev (token opcional, degradação graciosa)
+│   ├── mercado.py      # cliente brapi.dev (token opcional, degradação graciosa)
+│   └── macro.py        # BCB SGS + Focus + Tesouro Direto (dados oficiais, sem token)
 ├── requirements.txt
 ├── README.md           # como rodar e fazer deploy
 └── CONTEXTO.md         # este arquivo
 ```
+
+O "Cenário macro" (sidebar) e a taxa de Tesouro IPCA+ nascem com dados oficiais
+correntes (BCB SGS + Tesouro Transparente, sem token), não com números digitados
+à mão — e seguem editáveis. Um expansor mostra a mediana do Boletim Focus
+(projeção de mercado para Selic/IPCA), que também entra no parecer da LLM.
+Falha em qualquer fonte oficial cai de volta nos defaults manuais anteriores —
+mesma degradação graciosa das demais tools.
 
 O que cada aba entrega:
 - **Projeção — Renda Fixa:** compara CDB %CDI, Tesouro IPCA+, LCI/LCA isenta e
@@ -112,8 +120,9 @@ precisão que um chatbot puro não garante.
 | LLM | Gemini Flash (free tier) | R$ 0 | Permanente, só modelos Flash, limitado por RPM/RPD |
 | LLM (alternativas) | Ollama local / Groq | R$ 0 | Ollama = offline total; Groq = free tier rápido |
 | LLM (pago barato) | Claude Haiku | centavos/chamada | Se quiser ficar no ecossistema Anthropic |
-| Dados BR | brapi.dev (free) | R$ 0 | 15.000 req/mês; B3 (cotações), CVM (demonstrativos), BCB (Selic/CDI/IPCA), Tesouro |
-| Dados (backup) | yfinance + BCB SGS | R$ 0 | Fontes gratuitas independentes |
+| Dados BR (B3) | brapi.dev (free) | R$ 0 | 15.000 req/mês; cotações e fundamentos |
+| Dados oficiais (macro) | BCB SGS + Expectativas (Focus) + Tesouro Transparente | R$ 0 | Sem token; Selic/CDI/IPCA correntes, projeção de mercado e taxas reais do Tesouro Direto — `tools/macro.py` |
+| Dados (backup) | yfinance | R$ 0 | Fonte gratuita independente |
 | Vetor/RAG | FAISS/Chroma local | R$ 0 | Não precisa de banco hospedado no case |
 | Hospedagem | Streamlit Community Cloud | R$ 0 | Gera URL pública `*.streamlit.app` |
 

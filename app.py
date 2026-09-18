@@ -16,10 +16,30 @@ import streamlit as st
 
 import agente
 from tools import carteira as ct
+from tools import macro
 from tools import mercado as mkt
 from tools import renda_fixa as rf
 
 st.set_page_config(page_title="Assessor IA — Demo", page_icon="📈", layout="wide")
+
+
+# --------------------------------------------------------------------------- #
+# Dados oficiais (BCB/Tesouro) em cache — evita rebuscar a cada rerun.
+# Falha em qualquer uma delas devolve None; quem usa já trata isso.
+# --------------------------------------------------------------------------- #
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cenario_bcb():
+    return macro.cenario_atual()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _focus_bcb():
+    return macro.expectativas_focus()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _tesouro_bcb():
+    return macro.tesouro_direto_taxas()
 
 # --------------------------------------------------------------------------- #
 # Barra lateral: arquitetura + cenário macro
@@ -49,9 +69,39 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Cenário macro")
-    cdi = st.number_input("CDI (% a.a.)", value=10.5, step=0.25) / 100
-    ipca = st.number_input("IPCA (% a.a.)", value=4.0, step=0.25) / 100
-    selic = st.number_input("Selic (% a.a.)", value=10.5, step=0.25) / 100
+
+    cenario = _cenario_bcb()
+    if cenario and all(cenario.get(k) is not None for k in ("selic", "cdi", "ipca")):
+        st.caption("✅ Defaults com dados oficiais do BCB (SGS). Edite à vontade.")
+    else:
+        st.caption("⚠️ BCB indisponível agora — usando defaults manuais.")
+
+    cdi_default = (cenario or {}).get("cdi") or 10.5
+    ipca_default = (cenario or {}).get("ipca") or 4.0
+    selic_default = (cenario or {}).get("selic") or 10.5
+
+    cdi = st.number_input("CDI (% a.a.)", value=cdi_default, step=0.25) / 100
+    ipca = st.number_input("IPCA (% a.a.)", value=ipca_default, step=0.25) / 100
+    selic = st.number_input("Selic (% a.a.)", value=selic_default, step=0.25) / 100
+
+    focus = _focus_bcb()
+    if focus:
+        fs, fi = focus.get("selic", {}), focus.get("ipca", {})
+        focus_completo = all(
+            v is not None for v in (
+                fs.get("ano_atual"), fs.get("ano_seguinte"),
+                fi.get("ano_atual"), fi.get("ano_seguinte"),
+            )
+        )
+        with st.expander("📊 Projeção de mercado (Boletim Focus)"):
+            st.caption("Mediana das projeções de +100 instituições, BCB.")
+            if focus_completo:
+                st.markdown(
+                    f"**Selic** — {fs['ano_atual_num']}: {fs['ano_atual']:.2f}% · "
+                    f"{fs['ano_seguinte_num']}: {fs['ano_seguinte']:.2f}%\n\n"
+                    f"**IPCA** — {fi['ano_atual_num']}: {fi['ano_atual']:.2f}% · "
+                    f"{fi['ano_seguinte_num']}: {fi['ano_seguinte']:.2f}%"
+                )
 
 st.title("📈 Assessor IA")
 st.caption(
@@ -71,7 +121,20 @@ with aba_rf:
     principal = c1.number_input("Valor inicial (R$)", value=10000.0, step=1000.0)
     meses = c2.number_input("Prazo (meses)", value=24, step=6, min_value=1)
     pct_cdi = c3.number_input("CDB — % do CDI", value=100.0, step=5.0)
-    juro_real = c3.number_input("Tesouro IPCA+ — juro real (% a.a.)", value=6.0, step=0.25) / 100
+
+    tesouro = _tesouro_bcb()
+    titulo_ref = macro.titulo_ipca_mais_proximo(tesouro, meses)
+    juro_real_default = titulo_ref["taxa_venda_aa"] if titulo_ref else 6.0
+    juro_real_help = (
+        f"Sugerido pela taxa real de {titulo_ref['tipo']} {titulo_ref['vencimento']} "
+        f"({titulo_ref['taxa_venda_aa']:.2f}% a.a.) — Tesouro Transparente, {tesouro['data']}."
+        if titulo_ref else
+        "Não foi possível buscar a taxa real agora — ajuste manualmente."
+    )
+    juro_real = c3.number_input(
+        "Tesouro IPCA+ — juro real (% a.a.)",
+        value=juro_real_default, step=0.25, help=juro_real_help,
+    ) / 100
 
     # Só calcula ao clicar — evita recalcular (e chamar o LLM) a cada tecla.
     if st.button("Recalcular", key="recalcular_rf"):
@@ -85,6 +148,15 @@ with aba_rf:
 
         melhor = resultados[0]
         dif = melhor.valor_liquido - resultados[-1].valor_liquido
+        focus_txt = ""
+        fs = (focus or {}).get("selic", {})
+        fi = (focus or {}).get("ipca", {})
+        if fs.get("ano_seguinte") is not None and fi.get("ano_seguinte") is not None:
+            focus_txt = (
+                f"\nProjeção de mercado (Boletim Focus, BCB): Selic {fs['ano_seguinte_num']} "
+                f"~{fs['ano_seguinte']:.2f}% a.a.; IPCA {fi['ano_seguinte_num']} "
+                f"~{fi['ano_seguinte']:.2f}% a.a."
+            )
         contexto = (
             f"Cenário: CDI {cdi*100:.2f}% a.a., IPCA {ipca*100:.2f}% a.a., "
             f"Selic {selic*100:.2f}% a.a. Aporte R$ {principal:,.2f} por {meses} meses.\n"
@@ -94,6 +166,7 @@ with aba_rf:
                 for r in resultados
             )
             + f"\nMaior líquido: {melhor.nome}. Diferença para o pior: R$ {dif:,.2f}."
+            + focus_txt
         )
         st.session_state["rf_resultados"] = resultados
         st.session_state["rf_parecer"] = agente.sintetizar(contexto)

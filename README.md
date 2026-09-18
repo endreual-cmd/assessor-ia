@@ -11,6 +11,8 @@ alucinação) e o LLM entra só para rotear e redigir o parecer.
 
 - **Projeção de renda fixa** — compara CDB %CDI, Tesouro IPCA+, LCI/LCA isenta e
   poupança com juros compostos + tabela regressiva de IR, bruto → líquido, com gráfico.
+  Cenário macro e taxa do Tesouro IPCA+ já nascem com dados oficiais correntes
+  (BCB + Tesouro Transparente, sem token) — editáveis a qualquer momento.
 - **Análise de carteira** — retorno esperado, volatilidade, índice de Sharpe e
   rebalanceamento, com alocação e risco × retorno em gráfico.
 - **Consulta de ativo (B3)** — preço e fundamentos via brapi.dev (token opcional).
@@ -84,6 +86,7 @@ assessor-ia/
 ├── tools/
 │   ├── renda_fixa.py   # projeção determinística
 │   ├── carteira.py     # métricas de carteira
-│   └── mercado.py      # cliente brapi.dev
+│   ├── mercado.py      # cliente brapi.dev
+│   └── macro.py        # BCB SGS + Focus + Tesouro Direto (dados oficiais)
 └── requirements.txt
 ```
