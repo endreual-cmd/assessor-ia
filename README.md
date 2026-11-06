@@ -13,6 +13,11 @@ alucinação) e o LLM entra só para rotear e redigir o parecer.
   poupança com juros compostos + tabela regressiva de IR, bruto → líquido, com gráfico.
   Cenário macro e taxa do Tesouro IPCA+ já nascem com dados oficiais correntes
   (BCB + Tesouro Transparente, sem token) — editáveis a qualquer momento.
+- **Catálogo e comparador de produtos de renda fixa** — 23 produtos de bancos,
+  Tesouro Direto, crédito privado, fundos e poupança (CDB, RDB, LC, LCI, LCA, LCD,
+  LIG, LF, Tesouro Selic/Reserva/Prefixado/IPCA+/Renda+/Educa+, debêntures, CRI,
+  CRA, fundos RF). Calcula bruto → líquido com IR, IOF, custódia B3 e come-cotas,
+  e alerta carência mínima, aplicação mínima e limite do FGC.
 - **Análise de carteira** — retorno esperado, volatilidade, índice de Sharpe e
   rebalanceamento, com alocação e risco × retorno em gráfico.
 - **Consulta de ativo (B3)** — preço e fundamentos via brapi.dev (token opcional).
@@ -85,8 +90,10 @@ assessor-ia/
 ├── agente.py           # roteador + sintetizador (LLM opcional)
 ├── tools/
 │   ├── renda_fixa.py   # projeção determinística
+│   ├── produtos_rf.py  # catálogo de produtos RF + regras (IR, IOF, FGC, carência, custódia)
 │   ├── carteira.py     # métricas de carteira
 │   ├── mercado.py      # cliente brapi.dev
 │   └── macro.py        # BCB SGS + Focus + Tesouro Direto (dados oficiais)
+├── tests/            # python tests/test_produtos_rf.py
 └── requirements.txt
 ```

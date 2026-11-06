@@ -18,6 +18,7 @@ import agente
 from tools import carteira as ct
 from tools import macro
 from tools import mercado as mkt
+from tools import produtos_rf as prf
 from tools import renda_fixa as rf
 
 st.set_page_config(page_title="Assessor IA — Demo", page_icon="📈", layout="wide")
@@ -112,8 +113,8 @@ st.caption(
     "**Conteúdo informativo — não constitui recomendação de investimento.**"
 )
 
-aba_rf, aba_cart, aba_ativo = st.tabs(
-    ["Projeção — Renda Fixa", "Análise de Carteira", "Consulta de Ativo (B3)"]
+aba_rf, aba_prod, aba_cart, aba_ativo = st.tabs(
+    ["Projeção — Renda Fixa", "Produtos de Renda Fixa", "Análise de Carteira", "Consulta de Ativo (B3)"]
 )
 
 # --------------------------------------------------------------------------- #
@@ -205,6 +206,119 @@ with aba_rf:
         st.markdown(st.session_state["rf_parecer"])
     else:
         st.info("Preencha os campos acima e clique em **Recalcular** para ver a projeção.")
+
+# --------------------------------------------------------------------------- #
+# ABA — Catálogo e comparador de produtos de renda fixa
+# --------------------------------------------------------------------------- #
+_TAXA_PADRAO = {"pos_cdi": 100.0, "cdi_mais": 1.5, "pre": 13.0, "ipca_mais": 7.0, "selic": 0.0, "poupanca": 0.0}
+
+with aba_prod:
+    st.markdown("#### Catálogo")
+    st.caption(
+        "Produtos vendidos por bancos e corretoras: IR para pessoa física, FGC, "
+        "carência mínima regulatória, liquidez e aplicação mínima típica. "
+        "Regras conferidas em nov/2026 — revalidar periodicamente."
+    )
+    catalogo = pd.DataFrame(prf.tabela_catalogo())
+    categorias = sorted(catalogo["Categoria"].unique())
+    filtro = st.multiselect("Categoria", categorias, default=categorias, key="prod_cat")
+    st.dataframe(catalogo[catalogo["Categoria"].isin(filtro)], use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.markdown("#### Comparador")
+    p1, p2 = st.columns(2)
+    p_principal = p1.number_input("Valor (R$)", value=10000.0, step=1000.0, key="prod_principal")
+    p_meses = p2.number_input("Prazo (meses)", value=24, step=6, min_value=1, key="prod_meses")
+
+    rotulos = {p.codigo: p.nome for p in prf.CATALOGO}
+    escolhidos = st.multiselect(
+        "Produtos", list(rotulos), default=["CDB", "LCI", "TESOURO_SELIC", "TESOURO_IPCA"],
+        format_func=lambda c: rotulos[c], key="prod_escolhidos",
+    )
+
+    linhas = []
+    for c in escolhidos:
+        idx = prf.POR_CODIGO[c].indexadores[0].value
+        linhas.append({"Código": c, "Indexador": idx, "Taxa": _TAXA_PADRAO[idx]})
+    editor = st.data_editor(
+        pd.DataFrame(linhas, columns=["Código", "Indexador", "Taxa"]),
+        use_container_width=True, hide_index=True, disabled=["Código"], key="prod_editor",
+        column_config={
+            "Indexador": st.column_config.SelectboxColumn(
+                options=[i.value for i in prf.Indexador],
+                help="pos_cdi = % do CDI · cdi_mais/selic = spread % a.a. · pre = % a.a. · ipca_mais = juro real % a.a.",
+            ),
+            "Taxa": st.column_config.NumberColumn(format="%.2f"),
+        },
+    )
+
+    if st.button("Comparar", key="comparar_prod"):
+        cen = {"cdi": cdi, "ipca": ipca, "selic": selic}
+        res, erros = [], []
+        for _, row in editor.iterrows():
+            try:
+                res.append(prf.projetar_produto(
+                    row["Código"], p_principal, int(p_meses), row["Indexador"], float(row["Taxa"]), cen))
+            except ValueError as e:
+                erros.append(str(e))
+        res.sort(key=lambda r: r.valor_liquido, reverse=True)
+        st.session_state["prod_res"], st.session_state["prod_erros"] = res, erros
+        if res:
+            contexto = (
+                f"Cenário: CDI {cdi*100:.2f}%, IPCA {ipca*100:.2f}%, Selic {selic*100:.2f}% a.a. "
+                f"Aporte R$ {p_principal:,.2f} por {int(p_meses)} meses.\n"
+                + "\n".join(
+                    f"- {r.nome} ({prf.ROTULO_INDEXADOR[r.indexador]} {r.taxa_contratada:g}): "
+                    f"líquido R$ {r.valor_liquido:,.2f}; FGC {'sim' if r.produto.fgc else 'não'}; "
+                    f"liquidez: {r.produto.liquidez}"
+                    + (f"; alertas: {' '.join(r.alertas)}" if r.alertas else "")
+                    for r in res
+                )
+            )
+            st.session_state["prod_parecer"] = agente.sintetizar(contexto)
+
+    if st.session_state.get("prod_erros"):
+        for e in st.session_state["prod_erros"]:
+            st.error(e)
+
+    if st.session_state.get("prod_res"):
+        res = st.session_state["prod_res"]
+        st.dataframe(pd.DataFrame([{
+            "Produto": r.nome,
+            "Taxa a.a.": f"{r.taxa_aa*100:.2f}%",
+            "Bruto": f"R$ {r.valor_bruto:,.2f}",
+            "IOF": f"R$ {r.iof:,.2f}",
+            "Custódia": f"R$ {r.custodia:,.2f}",
+            "IR": f"R$ {r.ir:,.2f}",
+            "Líquido": f"R$ {r.valor_liquido:,.2f}",
+            "Líq. a.a. equiv.": f"{r.liquido_aa_equivalente*100:.2f}%",
+            "FGC": "Sim" if r.produto.fgc else "Não",
+        } for r in res]), use_container_width=True, hide_index=True)
+
+        for r in res:
+            for a in r.alertas:
+                st.warning(f"**{r.produto.codigo}** — {a}")
+
+        isentos = [r for r in res if r.produto.isento_ir]
+        if isentos:
+            st.caption(" · ".join(
+                f"{r.produto.codigo}: um produto tributado precisaria pagar "
+                f"{prf.taxa_tributada_equivalente(r.taxa_aa, r.meses)*100:.2f}% a.a. para empatar"
+                for r in isentos
+            ))
+
+        fig = go.Figure()
+        for r in res:
+            fig.add_trace(go.Scatter(x=[m for m, _ in r.serie], y=[v for _, v in r.serie],
+                                     mode="lines", name=r.produto.codigo))
+        fig.update_layout(title="Evolução do saldo (antes de IR, IOF e custódia)",
+                          xaxis_title="Meses", yaxis_title="R$", height=420)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("#### Parecer")
+        st.markdown(st.session_state.get("prod_parecer", ""))
+    else:
+        st.info("Escolha os produtos, ajuste indexador e taxa e clique em **Comparar**.")
 
 # --------------------------------------------------------------------------- #
 # ABA 2 — Análise de carteira
